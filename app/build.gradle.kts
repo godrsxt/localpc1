@@ -19,9 +19,25 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
+
+        // --- THE FIX STARTS HERE ---
+        // Use 'all' (or 'forEach') instead of 'each' for Kotlin DSL
+        all {
+            buildType ->
+                buildType.buildConfigField(
+                    "String",
+                    "FILE_PROVIDER_AUTHORITY",
+                    "\"${applicationId}.provider\""
+                )
+        }
+        // --- THE FIX ENDS HERE ---
     }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -31,11 +47,6 @@ android {
     }
     buildFeatures {
         compose = true
-    }
-    
-    // Add this to allow loading local content
-    buildTypes.each {
-        it.buildConfigField "String", "FILE_PROVIDER_AUTHORITY", "\"${applicationId}.provider\""
     }
 }
 
@@ -50,20 +61,4 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
-}
-
-// Add this block to configure the FileProvider
-android.applicationVariants.all {
-    val variant = this
-    variant.outputs.all {
-        val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-        output.outputFileName = "app-${variant.name}-release.apk"
-    }
-}
-
-// Add FileProvider logic
-androidComponents {
-    onVariants(selector().withName("release")) { variant ->
-        variant.packaging.resources.excludes.add("META-INF/*.kotlin_module")
-    }
 }
