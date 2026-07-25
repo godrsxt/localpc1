@@ -31,6 +31,10 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 
+// Fix: explicitly import the getter and setter for the 'by' delegate
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
 object PresentationBridge {
     var current: CastPresentation? by mutableStateOf(null)
 }
@@ -222,7 +226,8 @@ fun MainScreen() {
     }
 }
 
-class MainActivity.CastPresentation(context: Context, display: Display) : Presentation(context, display) {
+// Fix: Removed 'MainActivity.' from the class name. It is now a proper top-level class.
+class CastPresentation(context: Context, display: Display) : Presentation(context, display) {
 
     lateinit var webView: WebView
     private val videoDir: File = File(context.filesDir, "video_files").apply { mkdirs() }
@@ -230,7 +235,6 @@ class MainActivity.CastPresentation(context: Context, display: Display) : Presen
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Force completely black background on the secondary display
         val rootLayout = FrameLayout(context).apply { setBackgroundColor(android.graphics.Color.BLACK) }
         val aspectContainer = FrameLayout(context).apply { setBackgroundColor(android.graphics.Color.BLACK) }
 
@@ -260,7 +264,6 @@ class MainActivity.CastPresentation(context: Context, display: Display) : Presen
         setupAspectRatio(aspectContainer)
     }
 
-    // Forces the container to be exactly 16:9 ratio in the center of the screen
     private fun setupAspectRatio(container: FrameLayout) {
         val displayMetrics = android.util.DisplayMetrics()
         display.getRealMetrics(displayMetrics)
