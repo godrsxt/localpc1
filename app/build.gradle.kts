@@ -24,7 +24,6 @@ android {
                 "proguard-rules.pro"
             )
         }
-        // Removed the broken all { ... } block entirely
     }
 
     compileOptions {
@@ -51,4 +50,7 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
+    
+    // FIX: Added extended icons library for Folder, OndemandVideo, and Pause
+    implementation("androidx.compose.material:material-icons-extended")
 }
