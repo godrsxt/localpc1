@@ -105,11 +105,9 @@ fun saveVideoToInternal(context: Context, sourceUri: Uri, onSuccess: (String) ->
 fun MainScreen() {
     val context = LocalContext.current
     var statusText by remember { mutableStateOf("Not connected") }
-    var filename by remember { mutableStateOf("untitled.txt") }
-    var content by remember { mutableStateOf("") }
+    var selectedVideoName by remember { mutableStateOf<String?>(null) }
     var showFileList by remember { mutableStateOf(false) }
     var fileList by remember { mutableStateOf(listOf<String>()) }
-    var isVideoMode by remember { mutableStateOf(false) }
 
     val presentation = PresentationBridge.current
 
@@ -120,9 +118,8 @@ fun MainScreen() {
                 context = context,
                 sourceUri = it,
                 onSuccess = { savedName ->
-                    filename = savedName
+                    selectedVideoName = savedName
                     statusText = "Video saved: $savedName"
-                    content = ""
                 },
                 onError = { statusText = "Error saving video" }
             )
@@ -134,120 +131,86 @@ fun MainScreen() {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text("Local PC", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
+        Text("Local TV Caster", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(24.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                context.startActivity(Intent(Settings.ACTION_CAST_SETTINGS))
-            }) { Text("1. Connect") }
-            Button(onClick = {
-                content = ""
-                filename = "untitled.txt"
-                pushToTv(presentation, "setContent(\"New file\")")
-                statusText = "New file"
-            }) { Text("New") }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = filename,
-            onValueChange = { filename = it },
-            label = { Text("Filename") },
+        Button(
+            onClick = { context.startActivity(Intent(Settings.ACTION_CAST_SETTINGS)) },
             modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = content,
-            onValueChange = {
-                content = it
-                pushToTv(presentation, "setContent(${JSONObject.quote(it)})")
-            },
-            label = { Text("Notepad content") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                if (presentation == null) {
-                    statusText = "Connect first"
-                } else {
-                    val ok = presentation.saveFile(filename, content)
-                    statusText = if (ok) "Saved text" else "Save failed"
-                }
-            }) { Text("Save Text") }
-
-            Button(onClick = {
-                isVideoMode = false
-                fileList = File(context.filesDir, "notepad_files").list()?.toList() ?: emptyList()
-                showFileList = true
-            }) { Text("Open Text") }
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-        Text("2. Video Player", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                pickVideoLauncher.launch("video/*")
-            }) { Text("Pick") }
-
-            Button(onClick = {
-                isVideoMode = true
-                fileList = File(context.filesDir, "video_files").list()?.toList() ?: emptyList()
-                showFileList = true
-            }) { Text("Library") }
-
-            Button(onClick = {
-                if (presentation == null) statusText = "Connect first"
-                else {
-                    presentation.playVideo(filename)
-                    statusText = "Playing $filename"
-                }
-            }, enabled = presentation != null) { Text("Play") }
-
-            Button(onClick = {
-                if (presentation == null) statusText = "Connect first"
-                else {
-                    presentation.stopVideo()
-                    statusText = "Video Stopped"
-                }
-            }, enabled = presentation != null) { Text("Stop") }
-        }
+        ) { Text("1. Connect to TV / Wireless Display") }
 
         Spacer(Modifier.height(16.dp))
-        Text("Status: $statusText", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+        HorizontalDivider()
+        Spacer(Modifier.height(16.dp))
+        
+        Text("2. Video Player", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(16.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { pickVideoLauncher.launch("video/*") }, modifier = Modifier.weight(1f)) { 
+                Text("Add Video") 
+            }
+
+            Button(onClick = {
+                fileList = File(context.filesDir, "video_files").list()?.toList() ?: emptyList()
+                showFileList = true
+            }, modifier = Modifier.weight(1f)) { 
+                Text("Library") 
+            }
+        }
+        
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = if (selectedVideoName != null) "Selected: $selectedVideoName" else "No video selected",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    if (presentation == null) statusText = "Connect first"
+                    else if (selectedVideoName == null) statusText = "Select a video first"
+                    else {
+                        presentation.playVideo(selectedVideoName!!)
+                        statusText = "Playing $selectedVideoName"
+                    }
+                }, 
+                enabled = presentation != null && selectedVideoName != null,
+                modifier = Modifier.weight(1f)
+            ) { Text("Play on TV") }
+
+            Button(
+                onClick = {
+                    if (presentation == null) statusText = "Connect first"
+                    else {
+                        presentation.stopVideo()
+                        statusText = "Video Stopped"
+                    }
+                }, 
+                enabled = presentation != null,
+                modifier = Modifier.weight(1f)
+            ) { Text("Stop") }
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Text("Status: $statusText", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
 
         if (showFileList) {
             AlertDialog(
                 onDismissRequest = { showFileList = false },
                 confirmButton = { TextButton(onClick = { showFileList = false }) { Text("Close") } },
-                title = { Text(if (isVideoMode) "Saved Videos" else "Saved Text Files") },
+                title = { Text("Video Library") },
                 text = {
-                    if (fileList.isEmpty()) Text("No files found.")
+                    if (fileList.isEmpty()) Text("No videos found. Click 'Add Video' first.")
                     else {
                         LazyColumn {
                             items(fileList) { name ->
                                 TextButton(onClick = {
-                                    filename = name
-                                    if (isVideoMode) {
-                                        pushToTv(presentation, "setContent('Video: $name')")
-                                        statusText = "Selected video: $name"
-                                    } else {
-                                        val loaded = presentation?.loadFile(name) ?: ""
-                                        content = loaded
-                                        pushToTv(presentation, "setContent(${JSONObject.quote(loaded)})")
-                                        statusText = "Loaded text: $name"
-                                    }
+                                    selectedVideoName = name
+                                    statusText = "Selected video: $name"
                                     showFileList = false
                                 }) { Text(name) }
                             }
@@ -259,30 +222,25 @@ fun MainScreen() {
     }
 }
 
-fun pushToTv(presentation: CastPresentation?, command: String) {
-    presentation?.webView?.post {
-        presentation.webView.evaluateJavascript(command, null)
-    }
-}
-
-class CastPresentation(context: Context, display: Display) : Presentation(context, display) {
+class MainActivity.CastPresentation(context: Context, display: Display) : Presentation(context, display) {
 
     lateinit var webView: WebView
-    private val filesDir: File = File(context.filesDir, "notepad_files").apply { mkdirs() }
     private val videoDir: File = File(context.filesDir, "video_files").apply { mkdirs() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Force completely black background on the secondary display
         val rootLayout = FrameLayout(context).apply { setBackgroundColor(android.graphics.Color.BLACK) }
         val aspectContainer = FrameLayout(context).apply { setBackgroundColor(android.graphics.Color.BLACK) }
 
         webView = WebView(context).apply {
+            setBackgroundColor(android.graphics.Color.BLACK)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
-            settings.allowFileAccess = true     // MANDATORY for local video
-            settings.allowContentAccess = true  // MANDATORY for content:// URIs
+            settings.allowFileAccess = true
+            settings.allowContentAccess = true
             webViewClient = WebViewClient()
             webChromeClient = WebChromeClient()
             loadUrl("file:///android_asset/index.html")
@@ -302,6 +260,7 @@ class CastPresentation(context: Context, display: Display) : Presentation(contex
         setupAspectRatio(aspectContainer)
     }
 
+    // Forces the container to be exactly 16:9 ratio in the center of the screen
     private fun setupAspectRatio(container: FrameLayout) {
         val displayMetrics = android.util.DisplayMetrics()
         display.getRealMetrics(displayMetrics)
@@ -319,20 +278,6 @@ class CastPresentation(context: Context, display: Display) : Presentation(contex
             params.height = (screenWidth / targetRatio).toInt()
         }
         container.layoutParams = params
-    }
-
-    fun saveFile(filename: String, content: String): Boolean {
-        return try {
-            File(filesDir, filename).writeText(content)
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    fun loadFile(filename: String): String? {
-        val file = File(filesDir, filename)
-        return if (file.exists()) file.readText() else null
     }
 
     fun playVideo(filename: String) {
