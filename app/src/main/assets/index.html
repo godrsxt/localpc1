@@ -3,131 +3,70 @@
 <head>
 <meta charset="utf-8">
 <style>
+  /* Remove all margins, fill the screen, paint it pure black */
   html, body {
-    margin: 0; padding: 0; height: 100%;
+    margin: 0; 
+    padding: 0; 
+    width: 100%; 
+    height: 100%;
     background: #000;
     overflow: hidden;
-    font-family: sans-serif;
-  }
-  .window {
-    position: absolute;
-    top: 6%; left: 6%; right: 6%; bottom: 6%;
-    background: #000;
-    border: 2px solid #ffffff;
-    box-shadow: 4px 4px 0 rgba(0,0,0,0.5);
-    display: flex;
-    flex-direction: column;
-  }
-  .titlebar {
-    background: linear-gradient(90deg, #000080, #1084d0);
-    color: white;
-    padding: 6px 10px;
-    font-size: 18px;
-    font-weight: bold;
-  }
-  .menubar {
-    background: #c0c0c0;
-    padding: 4px 8px;
-    font-size: 14px;
-    border-bottom: 1px solid #808080;
-  }
-  
-  .player-container {
-    flex: 1;
-    position: relative;
-    background: #000;
     display: flex;
     align-items: center;
     justify-content: center;
   }
-
+  
+  /* Make the video fill the entire container */
   video {
-    max-width: 100%;
-    max-height: 100%;
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: contain; /* Ensures the video respects aspect ratio without cropping */
+    background: #000;
+    outline: none;
+    border: none;
   }
   
-  .placeholder {
-    color: white;
-    text-align: center;
-  }
-
-  .statusbar {
-    background: #c0c0c0;
-    border-top: 1px solid #808080;
-    padding: 4px 10px;
-    font-size: 12px;
-    color: #333;
+  /* Minimal standby text */
+  #placeholder {
+    color: #444;
+    font-family: sans-serif;
+    font-size: 24px;
+    position: absolute;
   }
 </style>
 </head>
 <body>
-  <div class="window">
-    <div class="titlebar">Local PC -- Video Player</div>
-    <div class="menubar">File&nbsp;&nbsp;&nbsp;Video&nbsp;&nbsp;&nbsp;View</div>
-    
-    <div class="player-container">
-        <div id="placeholderText" class="placeholder">
-            Select a video on the phone to play.<br>
-            Tap to Full Screen.
-        </div>
-        <video id="tvPlayer" playsinline onended="resetPlayer()">
-            <source src="" type="video/mp4">
-            Your browser does not support the video tag.
-        </video>
-    </div>
 
-    <div class="statusbar" id="statusBar">Ready</div>
-  </div>
+<div id="placeholder">Waiting for video...</div>
+<video id="tvPlayer" playsinline style="display: none;"></video>
 
 <script>
   const player = document.getElementById('tvPlayer');
-  const status = document.getElementById('statusBar');
-  const placeholder = document.getElementById('placeholderText');
-
-  function setContent(text) {
-    if (text.length > 5 && text.endsWith(".mp4")) {
-        status.innerText = "Ready to Play: " + text.substring(0, 30) + "...";
-        placeholder.style.display = 'none';
-        player.style.display = 'block';
-    } else {
-        status.innerText = text;
-        player.pause();
-        placeholder.style.display = 'block';
-        player.style.display = 'none';
-    }
-  }
+  const placeholder = document.getElementById('placeholder');
 
   function playVideo(uriString) {
-    status.innerText = "Loading...";
     placeholder.style.display = 'none';
     player.style.display = 'block';
     
     player.src = uriString;
     player.play().catch(err => {
-        status.innerText = "Error loading video. Tap to start.";
-    });
-    
-    player.addEventListener('click', () => {
-        if (player.requestFullscreen) {
-            player.requestFullscreen().catch(err => console.error(err));
-        }
+        console.error("Autoplay failed:", err);
     });
   }
 
   function stopVideo() {
     player.pause();
     player.src = "";
-    status.innerText = "Stopped";
-    placeholder.style.display = 'block';
     player.style.display = 'none';
+    placeholder.style.display = 'block';
+    placeholder.innerText = 'Video Stopped';
   }
-
-  function resetPlayer() {
-    status.innerText = "Playback finished.";
-  }
+  
+  player.onended = function() {
+    player.style.display = 'none';
+    placeholder.style.display = 'block';
+    placeholder.innerText = 'Playback Finished';
+  };
 </script>
 </body>
 </html>
