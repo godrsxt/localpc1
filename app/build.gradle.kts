@@ -25,19 +25,15 @@ android {
             )
         }
 
-        // --- THE FIX STARTS HERE ---
-        // Use 'all' (or 'forEach') instead of 'each' for Kotlin DSL
-        all {
-            buildType ->
-                buildType.buildConfigField(
-                    "String",
-                    "FILE_PROVIDER_AUTHORITY",
-                    "\"${applicationId}.provider\""
-                )
+        all { buildType ->
+            buildType.buildConfigField(
+                "String",
+                "FILE_PROVIDER_AUTHORITY",
+                "\"${applicationId}.provider\""
+            )
         }
-        // --- THE FIX ENDS HERE ---
     }
-    
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -47,6 +43,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true // REQUIRED for buildConfigField to work
     }
 }
 

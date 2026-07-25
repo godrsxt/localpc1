@@ -5,7 +5,7 @@
 <style>
   html, body {
     margin: 0; padding: 0; height: 100%;
-    background: #000; /* Black background for video */
+    background: #000;
     overflow: hidden;
     font-family: sans-serif;
   }
@@ -32,7 +32,6 @@
     border-bottom: 1px solid #808080;
   }
   
-  /* Video Player Container */
   .player-container {
     flex: 1;
     position: relative;
@@ -50,7 +49,6 @@
     object-fit: contain;
   }
   
-  /* Placeholder text */
   .placeholder {
     color: white;
     text-align: center;
@@ -89,11 +87,9 @@
   const status = document.getElementById('statusBar');
   const placeholder = document.getElementById('placeholderText');
 
-  // Update content when phone sends text (for compatibility)
   function setContent(text) {
-    if (text.length > 50) {
-        // If content looks like a filename, show it in status
-        status.innerText = "Playing: " + text.substring(0, 30) + "...";
+    if (text.length > 5 && text.endsWith(".mp4")) {
+        status.innerText = "Ready to Play: " + text.substring(0, 30) + "...";
         placeholder.style.display = 'none';
         player.style.display = 'block';
     } else {
@@ -104,20 +100,16 @@
     }
   }
 
-  // Called from Kotlin when a video URI is selected
   function playVideo(uriString) {
-    console.log("Playing URI: " + uriString);
     status.innerText = "Loading...";
     placeholder.style.display = 'none';
     player.style.display = 'block';
     
     player.src = uriString;
     player.play().catch(err => {
-        console.error("Auto-play blocked", err);
         status.innerText = "Error loading video. Tap to start.";
     });
     
-    // Ensure full screen on TV (Android 4.4+)
     player.addEventListener('click', () => {
         if (player.requestFullscreen) {
             player.requestFullscreen().catch(err => console.error(err));
@@ -125,7 +117,6 @@
     });
   }
 
-  // Stop video
   function stopVideo() {
     player.pause();
     player.src = "";
@@ -136,8 +127,6 @@
 
   function resetPlayer() {
     status.innerText = "Playback finished.";
-    // Optional: remove src to clear buffer
-    // player.src = "";
   }
 </script>
 </body>
