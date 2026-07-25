@@ -24,14 +24,7 @@ android {
                 "proguard-rules.pro"
             )
         }
-
-        all { buildType ->
-            buildType.buildConfigField(
-                "String",
-                "FILE_PROVIDER_AUTHORITY",
-                "\"${applicationId}.provider\""
-            )
-        }
+        // Removed the broken all { ... } block entirely
     }
 
     compileOptions {
@@ -43,7 +36,7 @@ android {
     }
     buildFeatures {
         compose = true
-        buildConfig = true // REQUIRED for buildConfigField to work
+        buildConfig = true
     }
 }
 
