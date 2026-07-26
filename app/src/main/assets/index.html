@@ -4,58 +4,36 @@
 <meta charset="utf-8">
 <style>
   html, body {
-    margin: 0; 
-    padding: 0; 
-    width: 100%; 
-    height: 100%;
-    background: #000;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #000; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
   }
-  
   video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background: #000;
-    outline: none;
-    border: none;
+    width: 100%; height: 100%; object-fit: contain;
+    background: #000; outline: none; border: none;
   }
-  
   #placeholder {
-    color: #555;
-    font-family: sans-serif;
-    font-size: 24px;
-    position: absolute;
-    text-align: center;
+    color: #444; font-family: sans-serif; font-size: 24px; position: absolute; text-align: center;
   }
 </style>
 </head>
 <body>
 
-<div id="placeholder">MX Caster<br><span style="font-size:16px;">Select a video from your phone</span></div>
+<div id="placeholder">Cast Connected<br><span style="font-size: 16px;">Waiting for video from Library...</span></div>
 <video id="tvPlayer" playsinline style="display: none;"></video>
 
 <script>
   const player = document.getElementById('tvPlayer');
   const placeholder = document.getElementById('placeholder');
 
-  // --- Kotlin Bridge Synchronizer ---
+  // --- Send Information continuously back to Kotlin Bridge ---
   function syncState() {
       if (window.AndroidBridge) {
-          // Send (isPlaying, currentTime, duration)
           const duration = isNaN(player.duration) ? 0 : player.duration;
           window.AndroidBridge.updateState(!player.paused, player.currentTime, duration);
       }
   }
-
-  // Bind HTML5 events to the Kotlin Bridge
-  player.addEventListener('timeupdate', syncState);
-  player.addEventListener('play', syncState);
-  player.addEventListener('pause', syncState);
-  player.addEventListener('durationchange', syncState);
+  setInterval(syncState, 500); // Guarantees smooth sync without crashing WebView event listeners
   
   player.addEventListener('ended', function() {
       if(window.AndroidBridge) window.AndroidBridge.onEnded();
@@ -64,7 +42,7 @@
       placeholder.innerHTML = "Playback Finished";
   });
 
-  // --- Remote Commands from Kotlin ---
+  // --- Receive Commands from Kotlin ---
   function playVideo(uriString) {
     placeholder.style.display = 'none';
     player.style.display = 'block';
@@ -73,22 +51,10 @@
     player.play().catch(err => console.error("Autoplay failed:", err));
   }
 
-  function pauseVideo() {
-    player.pause();
-  }
-
-  function resumeVideo() {
-    player.play();
-  }
-
-  function seekVideo(seconds) {
-    player.currentTime = seconds;
-  }
-
-  function setVolume(level) {
-    // HTML5 volume is 0.0 to 1.0
-    player.volume = level;
-  }
+  function pauseVideo() { player.pause(); }
+  function resumeVideo() { player.play(); }
+  function seekVideo(seconds) { player.currentTime = seconds; }
+  function setVolume(level) { player.volume = level; }
 </script>
 </body>
 </html>
