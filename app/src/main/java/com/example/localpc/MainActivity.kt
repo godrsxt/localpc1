@@ -1,15 +1,12 @@
 package com.example.localpc
 
-import android.Manifest
 import android.app.Presentation
-import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.view.Display
 import android.view.Gravity
@@ -26,42 +23,34 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.OndemandVideo
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
+
+// Explicit imports for state delegates
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 // --- Data Models ---
-data class VideoItem(val id: Long, val name: String, val uri: Uri, val durationMs: Long, val folderName: String)
-data class FolderItem(val name: String, val videos: List<VideoItem>)
+data class VideoItem(val uri: Uri, val name: String, val folder: String)
 
-// --- State Holders for the Bridge ---
+// --- Shared State & Information Bridge ---
 object PresentationBridge {
     var current: CastPresentation? by mutableStateOf(null)
     
-    // Remote Control States synced from TV
+    // Remote Control States synced from TV via JS Bridge
     var currentVideoTitle by mutableStateOf("No Video Playing")
     var isPlaying by mutableStateOf(false)
     var currentTime by mutableStateOf(0.0)
     var totalDuration by mutableStateOf(0.0)
-    var volume by mutableStateOf(1.0f) // 0.0 to 1.0
+    var volume by mutableStateOf(1.0f)
 }
 
 class MainActivity : ComponentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -108,153 +97,159 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// --- Video Fetcher ---
-suspend fun fetchAllVideos(context: Context): List<FolderItem> = withContext(Dispatchers.IO) {
-    val videos = mutableListOf<VideoItem>()
-    val projection = arrayOf(
-        MediaStore.Video.Media._ID,
-        MediaStore.Video.Media.DISPLAY_NAME,
-        MediaStore.Video.Media.DURATION,
-        MediaStore.Video.Media.BUCKET_DISPLAY_NAME
-    )
-    val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
+// --- Content Information Extractor ---
+fun extractVideoInfo(context: Context, uris: List<Uri>): List<VideoItem> {
+    val list = mutableListOf<VideoItem>()
+    for (uri in uris) {
+        var name = "Unknown Video"
+        var folder = "Picked Videos" // Default folder
+        
+        try {
+            // Take persistent permission so the WebView can read the file safely
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: Exception) { }
 
-    context.contentResolver.query(
-        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-        projection,
-        null,
-        null,
-        sortOrder
-    )?.use { cursor ->
-        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
-        val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
-        val durCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
-        val bucketCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
-
-        while (cursor.moveToNext()) {
-            val id = cursor.getLong(idCol)
-            val name = cursor.getString(nameCol) ?: "Unknown"
-            val duration = cursor.getLong(durCol)
-            val folder = cursor.getString(bucketCol) ?: "Internal Storage"
-            val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
-
-            videos.add(VideoItem(id, name, uri, duration, folder))
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    // Get File Name
+                    val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIdx != -1) name = cursor.getString(nameIdx) ?: name
+                    
+                    // Attempt to get Folder (Bucket) Name from the MediaStore columns of the picker
+                    val bucketIdx = cursor.getColumnIndex("bucket_display_name")
+                    if (bucketIdx != -1) {
+                        val bucket = cursor.getString(bucketIdx)
+                        if (bucket != null) folder = bucket
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
+        list.add(VideoItem(uri, name, folder))
     }
-    
-    // Group by folder and sort folders alphabetically
-    return@withContext videos
-        .groupBy { it.folderName }
-        .map { FolderItem(it.key, it.value) }
-        .sortedBy { it.name.lowercase() }
+    return list
 }
 
-fun formatMillis(ms: Long): String {
-    val hrs = TimeUnit.MILLISECONDS.toHours(ms)
-    val mins = TimeUnit.MILLISECONDS.toMinutes(ms) % 60
-    val secs = TimeUnit.MILLISECONDS.toSeconds(ms) % 60
-    return if (hrs > 0) String.format("%d:%02d:%02d", hrs, mins, secs) else String.format("%02d:%02d", mins, secs)
+fun formatTime(seconds: Double): String {
+    val totalSecs = seconds.toInt()
+    val hrs = totalSecs / 3600
+    val mins = (totalSecs % 3600) / 60
+    val secs = totalSecs % 60
+    return if (hrs > 0) String.format("%d:%02d:%02d", hrs, mins, secs)
+    else String.format("%02d:%02d", mins, secs)
 }
 
 // --- Compose UI ---
-enum class AppScreen { Folders, Videos, Remote }
+enum class AppScreen { Home, Folders, Videos, Remote }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
+    var currentScreen by remember { mutableStateOf(AppScreen.Home) }
     
-    var currentScreen by remember { mutableStateOf(AppScreen.Folders) }
-    var folders by remember { mutableStateOf<List<FolderItem>>(emptyList()) }
-    var selectedFolder by remember { mutableStateOf<FolderItem?>(null) }
-    var hasPermission by remember { mutableStateOf(false) }
+    // Video Library Data
+    var allVideos by remember { mutableStateOf(emptyList<VideoItem>()) }
+    var folders by remember { mutableStateOf(emptyMap<String, List<VideoItem>>()) }
+    var selectedFolder by remember { mutableStateOf<String?>(null) }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-        hasPermission = permissions.values.all { it }
-        if (hasPermission) {
-            coroutineScope.launch { folders = fetchAllVideos(context) }
+    val pickVideosLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) {
+            val newVideos = extractVideoInfo(context, uris)
+            // Combine old and new, ensuring no duplicates
+            allVideos = (allVideos + newVideos).distinctBy { it.uri }
+            // Sort into MX Player style folders
+            folders = allVideos.groupBy { it.folder }
+            currentScreen = AppScreen.Folders
         }
-    }
-
-    LaunchedEffect(Unit) {
-        val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_VIDEO
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-        permissionLauncher.launch(arrayOf(perm))
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(when(currentScreen) {
-                    AppScreen.Folders -> "Video Library"
-                    AppScreen.Videos -> selectedFolder?.name ?: "Videos"
-                    AppScreen.Remote -> "TV Remote"
-                }) },
-                navigationIcon = {
-                    if (currentScreen != AppScreen.Folders) {
-                        IconButton(onClick = { 
-                            currentScreen = if (currentScreen == AppScreen.Remote) AppScreen.Videos else AppScreen.Folders 
-                        }) {
-                            Icon(Icons.Default.ArrowBack, "Back")
-                        }
-                    }
+                title = { 
+                    Text(when(currentScreen) {
+                        AppScreen.Home -> "Local TV Caster"
+                        AppScreen.Folders -> "Library Folders"
+                        AppScreen.Videos -> selectedFolder ?: "Videos"
+                        AppScreen.Remote -> "TV Remote"
+                    }) 
                 },
                 actions = {
                     Button(onClick = { context.startActivity(Intent(Settings.ACTION_CAST_SETTINGS)) }) {
-                        Text("Cast")
+                        Text("Connect TV")
                     }
                 }
             )
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (!hasPermission) {
-                Text("Storage permission required to scan videos.", modifier = Modifier.align(Alignment.Center))
-                return@Scaffold
-            }
-
             when (currentScreen) {
+                AppScreen.Home -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Button(
+                            onClick = { pickVideosLauncher.launch("video/*") },
+                            modifier = Modifier.fillMaxWidth().height(60.dp)
+                        ) { Text("Pick Videos to Library") }
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        OutlinedButton(
+                            onClick = { currentScreen = AppScreen.Folders },
+                            modifier = Modifier.fillMaxWidth().height(60.dp),
+                            enabled = allVideos.isNotEmpty()
+                        ) { Text("Open Video Library") }
+                    }
+                }
+                
                 AppScreen.Folders -> {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(folders) { folder ->
-                            ListItem(
-                                headlineContent = { Text(folder.name) },
-                                supportingContent = { Text("${folder.videos.size} videos") },
-                                leadingContent = { Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                modifier = Modifier.clickable {
-                                    selectedFolder = folder
-                                    currentScreen = AppScreen.Videos
-                                }
-                            )
-                            HorizontalDivider()
-                        }
-                    }
-                }
-                AppScreen.Videos -> {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(selectedFolder?.videos ?: emptyList()) { video ->
-                            ListItem(
-                                headlineContent = { Text(video.name, maxLines = 2) },
-                                supportingContent = { Text(formatMillis(video.durationMs)) },
-                                leadingContent = { Icon(Icons.Default.OndemandVideo, contentDescription = null) },
-                                modifier = Modifier.clickable {
-                                    if (PresentationBridge.current != null) {
-                                        PresentationBridge.currentVideoTitle = video.name
-                                        PresentationBridge.current?.playVideo(video.uri.toString())
-                                        currentScreen = AppScreen.Remote
+                    Column {
+                        Button(onClick = { currentScreen = AppScreen.Home }, modifier = Modifier.padding(8.dp)) { Text("Back to Home") }
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(folders.keys.toList().sorted()) { folderName ->
+                                ListItem(
+                                    headlineContent = { Text(folderName, style = MaterialTheme.typography.titleMedium) },
+                                    supportingContent = { Text("${folders[folderName]?.size} videos") },
+                                    modifier = Modifier.clickable {
+                                        selectedFolder = folderName
+                                        currentScreen = AppScreen.Videos
                                     }
-                                }
-                            )
-                            HorizontalDivider()
+                                )
+                                HorizontalDivider()
+                            }
                         }
                     }
                 }
+
+                AppScreen.Videos -> {
+                    Column {
+                        Button(onClick = { currentScreen = AppScreen.Folders }, modifier = Modifier.padding(8.dp)) { Text("Back to Folders") }
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(folders[selectedFolder] ?: emptyList()) { video ->
+                                ListItem(
+                                    headlineContent = { Text(video.name, maxLines = 2) },
+                                    modifier = Modifier.clickable {
+                                        if (PresentationBridge.current != null) {
+                                            PresentationBridge.currentVideoTitle = video.name
+                                            PresentationBridge.current?.playVideo(video.uri.toString())
+                                            currentScreen = AppScreen.Remote
+                                        }
+                                    }
+                                )
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
+
                 AppScreen.Remote -> {
-                    RemoteControlScreen()
+                    RemoteControlScreen { currentScreen = AppScreen.Videos }
                 }
             }
         }
@@ -262,22 +257,24 @@ fun MainScreen() {
 }
 
 @Composable
-fun RemoteControlScreen() {
+fun RemoteControlScreen(onBack: () -> Unit) {
     val presentation = PresentationBridge.current
     var isDraggingSlider by remember { mutableStateOf(false) }
     var localSliderValue by remember { mutableStateOf(0f) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Button(onClick = onBack, modifier = Modifier.align(Alignment.Start)) { Text("Back to Library") }
+        Spacer(Modifier.height(32.dp))
+
         Text(PresentationBridge.currentVideoTitle, style = MaterialTheme.typography.headlineSmall, maxLines = 2)
         Spacer(Modifier.height(32.dp))
 
         // Progress Slider
-        val currentProgress = if (isDraggingSlider) localSliderValue else PresentationBridge.currentTime.toFloat()
-        val duration = PresentationBridge.totalDuration.toFloat().takeIf { it > 0 } ?: 1f
+        val duration = PresentationBridge.totalDuration.toFloat().coerceAtLeast(1f)
+        val currentProgress = if (isDraggingSlider) localSliderValue else PresentationBridge.currentTime.toFloat().coerceIn(0f, duration)
 
         Slider(
             value = currentProgress,
@@ -293,39 +290,29 @@ fun RemoteControlScreen() {
         )
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatMillis((currentProgress * 1000).toLong()))
-            Text(formatMillis((duration * 1000).toLong()))
+            Text(formatTime(currentProgress.toDouble()))
+            Text(formatTime(duration.toDouble()))
         }
 
         Spacer(Modifier.height(32.dp))
 
         // Playback Controls
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            FilledTonalButton(onClick = { presentation?.seekTo(currentProgress - 10.0) }) {
-                Text("-10s")
-            }
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { presentation?.seekTo(currentProgress - 10.0) }) { Text("-10s") }
             
-            FloatingActionButton(onClick = { 
+            Button(onClick = { 
                 if (PresentationBridge.isPlaying) presentation?.pause() else presentation?.resume()
-            }) {
-                Icon(
-                    if (PresentationBridge.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = "Play/Pause"
-                )
+            }, modifier = Modifier.height(56.dp)) {
+                Text(if (PresentationBridge.isPlaying) "PAUSE" else "PLAY")
             }
 
-            FilledTonalButton(onClick = { presentation?.seekTo(currentProgress + 10.0) }) {
-                Text("+10s")
-            }
+            Button(onClick = { presentation?.seekTo(currentProgress + 10.0) }) { Text("+10s") }
         }
 
         Spacer(Modifier.height(48.dp))
 
         // Volume Control
-        Text("Volume", style = MaterialTheme.typography.labelLarge)
+        Text("Volume Control", style = MaterialTheme.typography.labelLarge)
         Slider(
             value = PresentationBridge.volume,
             onValueChange = { 
@@ -337,7 +324,7 @@ fun RemoteControlScreen() {
     }
 }
 
-// --- The JS Bridge ---
+// --- Information Transfer JS Bridge ---
 class WebAppInterface {
     @JavascriptInterface
     fun updateState(isPlaying: Boolean, currentTime: Double, duration: Double) {
@@ -353,8 +340,7 @@ class WebAppInterface {
     }
 }
 
-// --- TV Presentation Class ---
-// STRICT CONSTRAINT: Maintained exact FrameLayout, aspect ratio, and WebView method.
+// --- Strict 16:9 TV Presentation Method ---
 class CastPresentation(context: Context, display: Display) : Presentation(context, display) {
 
     lateinit var webView: WebView
@@ -371,9 +357,9 @@ class CastPresentation(context: Context, display: Display) : Presentation(contex
             settings.domStorageEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = true
-            settings.allowContentAccess = true // CRITICAL: Allows loading content:// URIs directly
+            settings.allowContentAccess = true
             
-            // Bridge registration
+            // Register JS Bridge
             addJavascriptInterface(WebAppInterface(), "AndroidBridge")
             
             webViewClient = WebViewClient()
@@ -385,12 +371,10 @@ class CastPresentation(context: Context, display: Display) : Presentation(contex
             webView,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         )
-
         rootLayout.addView(
             aspectContainer,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER)
         )
-
         setContentView(rootLayout)
         setupAspectRatio(aspectContainer)
     }
@@ -414,7 +398,7 @@ class CastPresentation(context: Context, display: Display) : Presentation(contex
         container.layoutParams = params
     }
 
-    // Remote Commands
+    // Remote Commands triggered from Kotlin -> TV HTML
     fun playVideo(uriString: String) {
         webView.post {
             val escapedUri = JSONObject.quote(uriString)
@@ -422,21 +406,10 @@ class CastPresentation(context: Context, display: Display) : Presentation(contex
         }
     }
 
-    fun pause() {
-        webView.post { webView.evaluateJavascript("pauseVideo()", null) }
-    }
-
-    fun resume() {
-        webView.post { webView.evaluateJavascript("resumeVideo()", null) }
-    }
-
-    fun seekTo(seconds: Double) {
-        webView.post { webView.evaluateJavascript("seekVideo($seconds)", null) }
-    }
-
-    fun setVolume(level: Float) {
-        webView.post { webView.evaluateJavascript("setVolume($level)", null) }
-    }
+    fun pause() { webView.post { webView.evaluateJavascript("pauseVideo()", null) } }
+    fun resume() { webView.post { webView.evaluateJavascript("resumeVideo()", null) } }
+    fun seekTo(seconds: Double) { webView.post { webView.evaluateJavascript("seekVideo($seconds)", null) } }
+    fun setVolume(level: Float) { webView.post { webView.evaluateJavascript("setVolume($level)", null) } }
 
     override fun onStop() {
         super.onStop()
